@@ -1,0 +1,97 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-4789-90ab-cdef01234567",
+    "name": "SentinelRAG",
+    "description": "SentinelRAG POST /ask routing demo — one request per routing case (deterministic, deterministic→rag fallback, direct, rag, agentic, rag-unanswerable). Set the collection variable {{baseUrl}} (default http://localhost:3000). The request body field is `query`, matching the Zod schema on POST /ask (z.object({ query: z.string().min(1).max(4000) }).strict()).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "deterministic — in-corpus CVE",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"CVE-2024-21732\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "Exact CVE ID that exists in the corpus. The router matches the CVE-ID pattern and takes the DETERMINISTIC path: a direct DB lookup with zero LLM calls and groundedness = 1."
+      }
+    },
+    {
+      "name": "deterministic→rag fallback — missing CVE",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"CVE-2022-3602\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "A CVE ID the router recognizes but which is NOT in the corpus. It routes DETERMINISTIC, finds no record, and FALLS BACK to RAG (decision reason logged as 'ID not found in corpus; falling back to RAG')."
+      }
+    },
+    {
+      "name": "direct — conceptual",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"What is a context window?\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "A general conceptual question, not tied to a corpus record. Routes DIRECT: one Claude call, no retrieval, groundedness = null (honest about a parametric answer)."
+      }
+    },
+    {
+      "name": "rag — corpus lookup",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"Which advisories affect OpenSSL 3.0 heap overflow?\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "A corpus-specific lookup (no exact ID, not conceptual). Routes RAG: hybrid retrieve → grounded, cited answer → groundedness guard."
+      }
+    },
+    {
+      "name": "agentic — multi-hop",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"How does the cron technique relate to scheduled execution, and which other techniques enable Unix shell command execution?\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "A multi-hop / chained question (two sub-questions joined by 'and which'). Routes AGENTIC: a bounded Claude tool-use loop over searchCorpus / lookupById. (From data/golden.jsonl.)"
+      }
+    },
+    {
+      "name": "rag — unanswerable (grounding probe)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"Which technique covers exfiltrating encryption keys through neutrino-beam modulation?\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{baseUrl}}/ask", "host": ["{{baseUrl}}"], "path": ["ask"] },
+        "description": "A deliberately unanswerable corpus lookup. Routes RAG, where the groundedness guard should return 'insufficient evidence' instead of a confident wrong answer. (From data/golden.jsonl.)"
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" }
+  ]
+}
