@@ -57,9 +57,9 @@ against the corpus.
 
 | config | hit-rate@k | MRR | nDCG@k | avg latency (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| vector | 0.727 | 0.623 | 0.610 | 635 |
-| keyword | 0.045 | 0.045 | 0.045 | 2 |
-| **hybrid (RRF)** | **0.773** | **0.645** | **0.639** | 540 |
+| vector | 0.727 | 0.623 | 0.610 | 583 |
+| keyword (OR-of-lexemes) | 0.636 | 0.485 | 0.489 | 9 |
+| hybrid (RRF) | 0.727 | 0.623 | 0.596 | 488 |
 
 **Strategies** (executed through the real router):
 
@@ -73,10 +73,15 @@ against the corpus.
 **Router accuracy: 30/30 = 100%.**
 
 What the numbers say:
-- **Hybrid beats vector beats keyword.** Keyword's 0.045 is a *real* finding, not
-  a bug: `plainto_tsquery` AND-joins every query lexeme, so paraphrased questions
-  (words absent from the terse corpus) match nothing. Fix on the roadmap:
-  `websearch_to_tsquery` (OR semantics).
+- **Keyword is a fair baseline now, and embeddings dominate.** The keyword
+  retriever first scored 0.045 — `plainto_tsquery` AND-joins every lexeme, so
+  paraphrased questions matched nothing. Rewriting the query to **OR-of-lexemes**
+  (rank by term coverage) lifted it to 0.636. With a real keyword signal, hybrid
+  (RRF) and vector land neck-and-neck on this 22-item set: vector embeddings carry
+  these semantic paraphrase queries, while keyword adds recall *and* some fusion
+  noise. Robustly separating hybrid from vector wants a larger golden set and a
+  reranker (roadmap). This is the eval doing its job — a fix it prompted then
+  exposed a precision/recall trade-off, measured rather than assumed.
 - **The cost/latency ladder justifies routing**: deterministic $0 / 1.5s →
   rag $0.010 / 5.5s → agentic $0.027 / 15s. Answering a CVE-ID lookup with the
   deterministic path instead of agentic is ~**15× faster and free**.
@@ -157,7 +162,7 @@ This project was built with Claude Code. Honest notes on where AI output was
 
 ## Roadmap (deliberate scoping, not unfinished work)
 
-- **Retrieval** — `websearch_to_tsquery` for a fair keyword baseline; optional
-  Cohere/Voyage reranker (`src/retrieval/rerank.ts`) measured for lift.
+- **Retrieval** — optional Cohere/Voyage reranker (`src/retrieval/rerank.ts`)
+  measured for lift; a larger golden set to separate hybrid from vector robustly.
 - **Deploy** — apply the CloudFormation stack to RDS; confirm the engine version
   supports `CREATE EXTENSION vector`.
