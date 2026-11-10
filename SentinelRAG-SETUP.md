@@ -357,10 +357,10 @@ surface / no accounts / public corpus" — so it reads as a decision, not a gap.
 **Definition of done (this phase):**
 
 - [ ] SSRF guard blocks private/loopback/link-local/metadata; unit-tested; wired into ingestion + agentic fetch tools
-- [ ] Rate limiting active (per-IP + global), limits from `.env`
+- [x] Rate limiting active (per-IP + global), limits from `.env`
 - [ ] Every route body/params Zod-validated; invalid input rejected with 4xx
 - [ ] All DB queries parameterized; zero string-interpolated SQL
-- [ ] `@fastify/helmet` headers on; CORS restricted or documented N/A
+- [x] `@fastify/helmet` headers on; CORS restricted or documented N/A
 - [ ] `.env` gitignored + `.env.example` committed
 - [ ] CI runs `npm audit` + `osv-scanner`, fails on high/critical
 - [ ] `SECURITY.md` maps controls → OWASP Top 10 and lists out-of-scope items with rationale
