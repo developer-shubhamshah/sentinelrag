@@ -31,6 +31,11 @@ export function reciprocalRank(ranked: string[], relevant: Set<string>): number 
   return 0;
 }
 
+/** Mean Reciprocal Rank across queries, each with its own ranking + gold set. */
+export function mrr(queries: Array<{ ranked: string[]; relevant: Set<string> }>): number {
+  return mean(queries.map((q) => reciprocalRank(q.ranked, q.relevant)));
+}
+
 /** Normalized DCG at k with binary gains. */
 export function ndcgAtK(ranked: string[], relevant: Set<string>, k: number): number {
   let dcg = 0;

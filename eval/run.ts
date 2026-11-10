@@ -53,25 +53,33 @@ async function loadGolden(limit: number): Promise<Golden[]> {
   return Number.isFinite(limit) ? items.slice(0, limit) : items;
 }
 
-const f3 = (n: number) => n.toFixed(3);
-const f1 = (n: number) => n.toFixed(1);
+const DASH = "—";
+const f3 = (n: number) => (Number.isNaN(n) ? DASH : n.toFixed(3));
+const f1 = (n: number) => (Number.isNaN(n) ? DASH : n.toFixed(1));
+const f6 = (n: number) => (Number.isNaN(n) ? DASH : n.toFixed(6));
 
-// ─── Retrieval comparison (vector / keyword / hybrid) ───────────────────────
+// ─── Retrieval metrics (per config) ─────────────────────────────────────────
 const RETRIEVERS: Record<string, Retriever> = {
   vector: vectorSearch,
   keyword: keywordSearch,
   hybrid: hybridSearch,
 };
 
-async function retrievalTable(golden: Golden[]): Promise<string> {
+interface RetrievalRow {
+  config: string;
+  hit: number;
+  mrr: number;
+  ndcg: number;
+  latency: number;
+}
+
+async function computeRetrieval(golden: Golden[]): Promise<{ rows: RetrievalRow[]; n: number }> {
+  // Items with empty relevant_ext_ids have NO ground truth, so hit-rate/MRR/nDCG
+  // are UNDEFINED for them (not zero). They are EXCLUDED here and scored only on
+  // faithfulness/relevance + router accuracy below.
   const items = golden.filter((g) => g.relevant_ext_ids.length > 0);
-  const lines = [
-    `### Retrieval configs (k=${K}, over ${items.length} items with gold ext_ids)`,
-    "",
-    "| config | hit-rate@k | MRR | nDCG@k | avg latency (ms) |",
-    "| --- | ---: | ---: | ---: | ---: |",
-  ];
-  for (const [name, fn] of Object.entries(RETRIEVERS)) {
+  const rows: RetrievalRow[] = [];
+  for (const [config, fn] of Object.entries(RETRIEVERS)) {
     const hits: number[] = [];
     const mrrs: number[] = [];
     const ndcgs: number[] = [];
@@ -86,14 +94,12 @@ async function retrievalTable(golden: Golden[]): Promise<string> {
       mrrs.push(reciprocalRank(ranked, rel));
       ndcgs.push(ndcgAtK(ranked, rel, K));
     }
-    lines.push(
-      `| ${name} | ${f3(mean(hits))} | ${f3(mean(mrrs))} | ${f3(mean(ndcgs))} | ${f1(mean(lat))} |`,
-    );
+    rows.push({ config, hit: mean(hits), mrr: mean(mrrs), ndcg: mean(ndcgs), latency: mean(lat) });
   }
-  return lines.join("\n");
+  return { rows, n: items.length };
 }
 
-// ─── Strategy comparison (via the real router) ──────────────────────────────
+// ─── Answer metrics + router (per item, via the real router) ────────────────
 interface ItemResult {
   expected: Strategy;
   chosen: Strategy;
@@ -114,36 +120,36 @@ async function runStrategies(
 
   for (const g of golden) {
     const trace = new Trace(g.q);
-    const routed = classify(g.q); // the routing decision (pre-fallback)
+    const routed = classify(g.q); // routing decision (pre-fallback)
     const { answer, decision } = await runRouted(g.q, trace);
 
     let faithfulness: number | null = null;
     let relevance: number | null = null;
+    let kwRecall = keywordRecall(answer.text, g.answer_keywords); // cheap, always available
     if (!noJudge) {
       if (decision.chosen === "deterministic") {
-        // The deterministic answer is the verbatim DB record — faithful by
-        // construction (no generation). Score faithfulness 1.0 and only judge
-        // relevance (does the record address the question?).
+        // Verbatim DB record — faithful by construction; judge relevance only.
         faithfulness = 1.0;
-        const j = await judgeAnswer(g.q, answer.text, answer.text);
+        const j = await judgeAnswer(g.q, answer.text, answer.text, g.answer_keywords);
         if (j) {
           relevance = j.relevance;
+          kwRecall = j.keywordContainment;
           judgeTrace.llm({ model: j.model, usage: j.usage });
         }
       } else {
-        // Give the judge corpus evidence: empty for parametric direct answers;
-        // hybrid top-k otherwise. NOTE: for agentic this is approximate — the
-        // agent may cite evidence gathered across several tool calls that this
-        // single retrieval doesn't surface, so agentic faithfulness is a lower bound.
+        // Corpus evidence for the judge: empty for parametric direct answers;
+        // hybrid top-k otherwise (approximate for agentic → faithfulness is a
+        // lower bound, since the agent may gather evidence across tool calls).
         let context = "";
         if (g.expected_strategy !== "direct") {
           const hits = await hybridSearch(g.q, { k: 8 });
           context = hits.map((h) => `[${extIdOf(h)}] ${h.content}`).join("\n\n");
         }
-        const j = await judgeAnswer(g.q, answer.text, context);
+        const j = await judgeAnswer(g.q, answer.text, context, g.answer_keywords);
         if (j) {
           faithfulness = j.faithfulness;
           relevance = j.relevance;
+          kwRecall = j.keywordContainment;
           judgeTrace.llm({ model: j.model, usage: j.usage });
         }
       }
@@ -155,41 +161,63 @@ async function runStrategies(
       routerCorrect: routed.chosen === g.expected_strategy,
       faithfulness,
       relevance,
-      kwRecall: keywordRecall(answer.text, g.answer_keywords),
+      kwRecall,
       latencyMs: trace.latencyMs(),
       costUSD: trace.costUSD(),
     });
-    process.stdout.write(
-      `  ran ${results.length}/${golden.length}  [${g.expected_strategy}→${decision.chosen}]\r`,
-    );
+    process.stdout.write(`  ran ${results.length}/${golden.length}  [${g.expected_strategy}→${decision.chosen}]\r`);
   }
   process.stdout.write("\n");
   return { results, judgeCost: judgeTrace.costUSD() };
 }
 
-function strategyTable(results: ItemResult[]): string {
+interface StrategyRow {
+  strategy: Strategy;
+  n: number;
+  faith: number;
+  rel: number;
+  latency: number;
+  cost: number;
+}
+
+function computeStrategyRows(results: ItemResult[]): StrategyRow[] {
   const order: Strategy[] = ["deterministic", "direct", "rag", "agentic"];
   const avg = (xs: Array<number | null>) => {
     const v = xs.filter((x): x is number => x !== null);
     return v.length ? mean(v) : NaN;
   };
-  const cell = (n: number) => (Number.isNaN(n) ? "—" : f3(n));
-
-  const lines = [
-    "### Strategies (executed via router)",
-    "",
-    "| strategy | n | faithfulness | relevance | keyword-recall | avg latency (ms) | avg cost (USD) |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-  ];
+  const rows: StrategyRow[] = [];
   for (const s of order) {
-    const rows = results.filter((r) => r.chosen === s);
-    if (rows.length === 0) continue;
+    const rs = results.filter((r) => r.chosen === s);
+    if (rs.length === 0) continue;
+    rows.push({
+      strategy: s,
+      n: rs.length,
+      faith: avg(rs.map((r) => r.faithfulness)),
+      rel: avg(rs.map((r) => r.relevance)),
+      latency: mean(rs.map((r) => r.latencyMs)),
+      cost: mean(rs.map((r) => r.costUSD)),
+    });
+  }
+  return rows;
+}
+
+// ─── One combined table: retrieval-config rows + strategy rows ──────────────
+// Retrieval metrics apply only to config rows; answer metrics only to strategy
+// rows; cells that don't apply are "—" (not zero). Router accuracy is separate.
+function combinedTable(retrieval: RetrievalRow[], strategy: StrategyRow[]): string {
+  const lines = [
+    "| row | hit-rate@5 | MRR | nDCG@5 | faithfulness | relevance | avg latency (ms) | avg cost (USD) |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  ];
+  for (const r of retrieval) {
     lines.push(
-      `| ${s} | ${rows.length} | ${cell(avg(rows.map((r) => r.faithfulness)))} | ${cell(
-        avg(rows.map((r) => r.relevance)),
-      )} | ${f3(mean(rows.map((r) => r.kwRecall)))} | ${f1(mean(rows.map((r) => r.latencyMs)))} | ${mean(
-        rows.map((r) => r.costUSD),
-      ).toFixed(6)} |`,
+      `| **${r.config}** _(retrieval)_ | ${f3(r.hit)} | ${f3(r.mrr)} | ${f3(r.ndcg)} | ${DASH} | ${DASH} | ${f1(r.latency)} | ${DASH} |`,
+    );
+  }
+  for (const s of strategy) {
+    lines.push(
+      `| **${s.strategy}** _(strategy, n=${s.n})_ | ${DASH} | ${DASH} | ${DASH} | ${f3(s.faith)} | ${f3(s.rel)} | ${f1(s.latency)} | ${f6(s.cost)} |`,
     );
   }
   return lines.join("\n");
@@ -200,14 +228,9 @@ function routerReport(results: ItemResult[]): string {
   const acc = results.length ? correct / results.length : 0;
   const misses = results.filter((r) => !r.routerCorrect);
   const lines = [
-    "### Router accuracy (route() vs expected_strategy)",
-    "",
-    `**${correct}/${results.length} = ${(acc * 100).toFixed(1)}%**`,
+    `**Router accuracy: ${correct}/${results.length} = ${(acc * 100).toFixed(1)}%** (route() vs expected_strategy)`,
   ];
-  if (misses.length) {
-    lines.push("", "Misroutes:");
-    for (const m of misses) lines.push(`- expected \`${m.expected}\` → routed \`${m.chosen}\``);
-  }
+  for (const m of misses) lines.push(`- misroute: expected \`${m.expected}\` → routed \`${m.chosen}\``);
   return lines.join("\n");
 }
 
@@ -217,16 +240,22 @@ async function main(): Promise<void> {
   const golden = await loadGolden(flags.limit);
 
   console.log(`\n# SentinelRAG eval — ${golden.length} golden items\n`);
-  console.log(await retrievalTable(golden));
+  const { rows: rRows, n: rN } = await computeRetrieval(golden);
 
   if (flags.retrievalOnly) {
+    console.log(combinedTable(rRows, []));
+    console.log(`\n_Retrieval metrics over ${rN}/${golden.length} items — empty relevant_ext_ids excluded (undefined, not zero)._`);
     console.log("\n(retrieval-only: skipped strategy + judge eval)\n");
     return;
   }
 
-  console.log("\n_running strategies via router (this makes live LLM calls)…_\n");
+  console.log("_running strategies via router (live LLM calls)…_\n");
   const { results, judgeCost } = await runStrategies(golden, flags.noJudge);
-  console.log("\n" + strategyTable(results));
+
+  console.log(combinedTable(rRows, computeStrategyRows(results)));
+  console.log(
+    `\n_Retrieval metrics: ${rN}/${golden.length} items (empty relevant_ext_ids excluded). Answer metrics + router: all ${golden.length}._`,
+  );
   console.log("\n" + routerReport(results));
   if (!flags.noJudge) console.log(`\n_judge (LLM-as-judge) overhead cost: $${judgeCost.toFixed(6)}_`);
 }

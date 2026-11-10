@@ -50,41 +50,41 @@ query ──► route() ──┬─ deterministic   exact CVE/ATT&CK id → DB 
 ## Evaluation results
 
 Run with `npm run eval` against a live corpus (1,973 chunks: 1,200 CVEs +
-706 ATT&CK techniques). Golden set: 30 hand-curated items with ext_ids verified
-against the corpus.
+706 ATT&CK techniques). Golden set: 23 hand-curated items, each derived from a
+real document and verified against the corpus; **16 carry gold `ext_id`s** and 7
+(general-concept + deliberately-unanswerable) do not.
 
-**Retrieval configs** (k=5, over the 22 items with gold ext_ids):
+One combined table — retrieval metrics apply only to the config rows, answer
+metrics only to the strategy rows, `—` where a metric doesn't apply. Items with
+empty `relevant_ext_ids` are **excluded** from retrieval metrics (undefined, not
+zero) and scored only on faithfulness/relevance + routing.
 
-| config | hit-rate@k | MRR | nDCG@k | avg latency (ms) |
-| --- | ---: | ---: | ---: | ---: |
-| vector | 0.727 | 0.623 | 0.610 | 583 |
-| keyword (OR-of-lexemes) | 0.636 | 0.485 | 0.489 | 9 |
-| hybrid (RRF) | 0.727 | 0.623 | 0.596 | 488 |
+| row | hit-rate@5 | MRR | nDCG@5 | faithfulness | relevance | avg latency (ms) | avg cost (USD) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **vector** *(retrieval)* | 0.688 | 0.656 | 0.664 | — | — | 693 | — |
+| **keyword** *(retrieval)* | 0.625 | 0.448 | 0.473 | — | — | 14 | — |
+| **hybrid** *(retrieval)* | 0.688 | 0.594 | 0.613 | — | — | 541 | — |
+| **deterministic** *(n=5)* | — | — | — | 1.000¹ | 1.000 | 1,212 | $0.000000 |
+| **direct** *(n=5)* | — | — | — | 0.890 | 1.000 | 7,825 | $0.007838 |
+| **rag** *(n=10)* | — | — | — | 1.000 | 0.945 | 7,243 | $0.010317 |
+| **agentic** *(n=3)* | — | — | — | 0.533² | 0.950 | 13,431 | $0.020919 |
 
-**Strategies** (executed through the real router):
-
-| strategy | n | faithfulness | relevance | keyword-recall | avg latency (ms) | avg cost (USD) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| deterministic | 6 | 1.000¹ | 1.000 | 1.000 | 1,525 | $0.000000 |
-| direct | 8 | 0.881 | 1.000 | 1.000 | 7,507 | $0.007726 |
-| rag | 11 | 0.980 | 1.000 | 1.000 | 5,482 | $0.009907 |
-| agentic | 5 | 0.270² | 0.840 | 1.000 | 15,143 | $0.026556 |
-
-**Router accuracy: 30/30 = 100%.**
+**Router accuracy: 23/23 = 100%** (retrieval metrics over 16/23 items; judge overhead ≈ $0.009).
 
 What the numbers say:
-- **Keyword is a fair baseline now, and embeddings dominate.** The keyword
-  retriever first scored 0.045 — `plainto_tsquery` AND-joins every lexeme, so
-  paraphrased questions matched nothing. Rewriting the query to **OR-of-lexemes**
-  (rank by term coverage) lifted it to 0.636. With a real keyword signal, hybrid
-  (RRF) and vector land neck-and-neck on this 22-item set: vector embeddings carry
-  these semantic paraphrase queries, while keyword adds recall *and* some fusion
-  noise. Robustly separating hybrid from vector wants a larger golden set and a
-  reranker (roadmap). This is the eval doing its job — a fix it prompted then
-  exposed a precision/recall trade-off, measured rather than assumed.
-- **The cost/latency ladder justifies routing**: deterministic $0 / 1.5s →
-  rag $0.010 / 5.5s → agentic $0.027 / 15s. Answering a CVE-ID lookup with the
-  deterministic path instead of agentic is ~**15× faster and free**.
+- **The cost/latency ladder justifies routing**: deterministic $0 / 1.2s → rag
+  $0.010 / 7.2s → agentic $0.021 / 13.4s. Answering a CVE-ID lookup on the
+  deterministic path instead of agentic is ~**11× faster and free**.
+- **Keyword is a fair baseline.** It first scored ~0.05 — `plainto_tsquery`
+  AND-joins every lexeme, so paraphrased questions matched nothing. Rewriting to
+  **OR-of-lexemes** (rank by term coverage) made it competitive (0.625). With a
+  real keyword signal, hybrid (RRF) and vector sit neck-and-neck on this small
+  set — embeddings carry these paraphrase queries; separating hybrid from vector
+  robustly wants a larger golden set and a reranker (roadmap).
+- **The groundedness guard shows up in the numbers.** The two deliberately-
+  unanswerable items route to `rag` and return "insufficient evidence", which is
+  why `rag` relevance is 0.945 rather than 1.0 — the guard refusing to answer, by
+  design.
 - ¹ Deterministic faithfulness is **1.0 by construction** (verbatim DB record, no
   generation) — not LLM-judged. ² Agentic faithfulness is a **lower bound**: the
   judge sees only hybrid-top-8, not everything the agent gathered across tool
