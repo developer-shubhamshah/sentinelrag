@@ -3,7 +3,8 @@ import { performance } from "node:perf_hooks";
 import { vectorSearch } from "../src/retrieval/vector.js";
 import { keywordSearch } from "../src/retrieval/keyword.js";
 import { hybridSearch } from "../src/retrieval/hybrid.js";
-import { extIdOf, type Retriever } from "../src/retrieval/types.js";
+import { extIdOf, DEFAULT_K, type Retriever } from "../src/retrieval/types.js";
+import { rerank } from "../src/retrieval/rerank.js";
 import { classify, runRouted } from "../src/router/route.js";
 import { Trace } from "../src/obs/trace.js";
 import { dbReady, closePool } from "../src/db.js";
@@ -63,6 +64,15 @@ const RETRIEVERS: Record<string, Retriever> = {
   vector: vectorSearch,
   keyword: keywordSearch,
   hybrid: hybridSearch,
+  // Retrieve a deeper fused pool (20), then rerank down to k. Without
+  // COHERE_API_KEY the rerank is a passthrough (top-k of the deeper pool) — which
+  // alone differs from plain `hybrid` (deeper recall), so the cross-encoder's
+  // ISOLATED lift is (keyed − this passthrough baseline), while (keyed − hybrid)
+  // is the end-to-end gain of adding a rerank stage.
+  "hybrid+rerank": async (query, opts = {}) => {
+    const fused = await hybridSearch(query, { k: 20 });
+    return rerank(query, fused, { topN: opts.k ?? DEFAULT_K });
+  },
 };
 
 interface RetrievalRow {

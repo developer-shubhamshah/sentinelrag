@@ -34,8 +34,9 @@ const EnvSchema = z.object({
   NVD_API_KEY: z.string().optional(),
   CVE_YEAR: z.coerce.number().int().min(1999).max(2100).default(2024),
 
-  // Optional reranker (stretch)
+  // Optional reranker (stretch) — Cohere Rerank
   COHERE_API_KEY: z.string().optional(),
+  COHERE_RERANK_MODEL: z.string().default("rerank-v3.5"),
 
   // HTTP hardening (§9) — rate limiting + CORS, values from .env.
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60), // per-IP, per window
