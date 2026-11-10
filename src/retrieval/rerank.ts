@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { CohereClientV2 } from "cohere-ai";
 import { config } from "../config.js";
 import type { Retrieved } from "./types.js";
@@ -39,6 +40,11 @@ export function applyRerank(
     .map((r) => ({ ...docs[r.index]!, score: r.relevanceScore }));
 }
 
+function isRateLimit(e: unknown): boolean {
+  const err = e as { statusCode?: number; name?: string } | undefined;
+  return err?.statusCode === 429 || /toomanyrequests|rate.?limit/i.test(err?.name ?? "");
+}
+
 export async function rerank(
   query: string,
   docs: Retrieved[],
@@ -48,11 +54,23 @@ export async function rerank(
   if (!rerankEnabled() || docs.length === 0) {
     return docs.slice(0, topN); // passthrough: no provider configured
   }
-  const res = await client().rerank({
+  const request = {
     model: config.COHERE_RERANK_MODEL,
     query,
     documents: docs.map((d) => d.content),
     topN,
-  });
-  return applyRerank(docs, res.results, topN);
+  };
+  // Bounded retry with exponential backoff on 429 (trial keys are rate-limited).
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= 5; attempt++) {
+    try {
+      const res = await client().rerank(request);
+      return applyRerank(docs, res.results, topN);
+    } catch (e) {
+      lastErr = e;
+      if (!isRateLimit(e) || attempt === 5) throw e;
+      await sleep(Math.min(1500 * 2 ** attempt, 20000));
+    }
+  }
+  throw lastErr;
 }

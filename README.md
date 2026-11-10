@@ -64,6 +64,7 @@ zero) and scored only on faithfulness/relevance + routing.
 | **vector** *(retrieval)* | 0.758 | 0.712 | 0.709 | — | — | 500 | — |
 | **keyword** *(retrieval)* | 0.636 | 0.430 | 0.462 | — | — | 12 | — |
 | **hybrid** *(retrieval)* | 0.758 | 0.639 | 0.661 | — | — | 467 | — |
+| **hybrid+rerank** *(retrieval)* | **0.848** | **0.813** | **0.816** | — | — | 5,670† | — |
 | **deterministic** *(n=8)* | — | — | — | 1.000¹ | 1.000 | 1,428 | $0.000000 |
 | **direct** *(n=6)* | — | — | — | 0.900 | 1.000 | 8,018 | $0.008283 |
 | **rag** *(n=22)* | — | — | — | 0.996 | 0.984 | 6,407 | $0.010753 |
@@ -75,11 +76,14 @@ What the numbers say:
 - **The cost/latency ladder justifies routing**: deterministic $0 / 1.4s → rag
   $0.011 / 6.4s → agentic $0.020 / 13.1s. Answering a CVE-ID lookup on the
   deterministic path instead of agentic is ~**9× faster and free**.
-- **Pure vector leads, and the result is now robust** (33 gold-`ext_id` items, not
-  noise-level). Vector tops ranking quality (MRR 0.712, nDCG 0.709); naive RRF
-  **hybrid ties it on hit-rate but sits below on MRR/nDCG** (0.639 / 0.661) — the
-  OR-keyword adds recall *and* fusion noise. This is the case for a **reranker**
-  over the fused candidates (roadmap: wire Cohere/Voyage rerank, measure the lift).
+- **A reranker resolves the vector-vs-hybrid gap and wins outright.** On the
+  41-item set plain RRF hybrid trailed vector on ranking (MRR 0.639 vs 0.712).
+  Adding a **Cohere cross-encoder rerank** over the top-20 fused pool lifts
+  `hybrid+rerank` to **0.848 / 0.813 / 0.816** — beating vector on all three
+  (MRR +0.10, nDCG +0.11). Isolated from the deeper-pool effect (passthrough
+  baseline 0.818 / 0.663 / 0.693), the cross-encoder *alone* adds **+0.15 MRR /
+  +0.12 nDCG**. († the ≈5.7s latency is inflated by trial-key rate-limit backoff;
+  the rerank call itself is a few hundred ms. Measured, not yet in the serving path.)
 - **Keyword is a fair baseline** (not the ~0.05 it scored under `plainto_tsquery`
   AND-semantics; rewriting to OR-of-lexemes made it competitive at 0.636) — but on
   this corpus the dense embeddings clearly dominate it.
@@ -163,7 +167,7 @@ This project was built with Claude Code. Honest notes on where AI output was
 
 ## Roadmap (deliberate scoping, not unfinished work)
 
-- **Retrieval** — optional Cohere/Voyage reranker (`src/retrieval/rerank.ts`)
-  measured for lift; a larger golden set to separate hybrid from vector robustly.
+- **Adopt `hybrid+rerank` in the serving path** — the eval shows it beats hybrid
+  and vector; wiring it into `rag.ts` (it's currently eval-only) is a small change.
 - **Deploy** — apply the CloudFormation stack to RDS; confirm the engine version
   supports `CREATE EXTENSION vector`.
