@@ -1,3 +1,5 @@
+import { safeFetch } from "../guards/ssrf.js";
+
 /** A source document before chunking. One per CVE or ATT&CK technique. */
 export interface RawDoc {
   source: "nvd" | "attack";
@@ -9,7 +11,12 @@ export interface RawDoc {
   metadata: Record<string, unknown>;
 }
 
-/** A fetch with bounded retries and a minimum spacing between calls. */
+/**
+ * A fetch with bounded retries and a minimum spacing between calls. Every
+ * request goes through the SSRF guard (scheme/host allowlist + address screen +
+ * redirect refusal); SsrfError is `fatal`, so a blocked URL fails fast instead
+ * of being retried.
+ */
 export async function fetchJson(
   url: string,
   opts: { headers?: Record<string, string>; retries?: number } = {},
@@ -18,7 +25,7 @@ export async function fetchJson(
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await safeFetch(url, {
         headers: { "User-Agent": "SentinelRAG-ingest/0.1", ...headers },
       });
       if (res.status === 429 || res.status >= 500) {

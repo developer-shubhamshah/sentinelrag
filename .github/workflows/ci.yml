@@ -1,0 +1,51 @@
+name: CI
+
+# Runs on every pull request. Each job is an independent required check.
+on:
+  pull_request:
+    branches: [master]
+
+# Least privilege by default; the OSV job widens its own permissions below.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Typecheck & tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test # vitest run
+
+  audit:
+    name: npm audit (fail on high/critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Non-zero exit (fails the job) only for high or critical advisories.
+      - run: npm audit --audit-level=high
+
+  # OSV-Scanner reusable PR workflow (verified against
+  # https://google.github.io/osv-scanner/github-action/). It diffs the PR
+  # against the base branch and, with fail-on-vuln, fails on any newly
+  # introduced known vulnerability — a strict superset of high/critical.
+  osv-scan:
+    name: OSV-Scanner
+    permissions:
+      actions: read
+      security-events: write # upload SARIF to the Security tab
+      contents: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.1
+    with:
+      fail-on-vuln: true

@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  SentinelRAG deploy stack (stretch/roadmap). Provisions the RDS Postgres
+  instance (pgvector), a Secrets Manager secret for admin/ingestion creds, the
+  least-privilege in-database roles (sentinel_api / sentinel_ingest), and the
+  service's IAM role scoped to just that one secret + RDS IAM connect.
+  Compute (ECS/Lambda) is defined in a separate stack; this one focuses on the
+  §9 "least-privilege DB role + scoped IAM" definition-of-done item.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the database and the role-bootstrap Lambda.
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets (>= 2 AZs) for the DB subnet group + Lambda ENIs.
+  DBEngineVersion:
+    Type: String
+    Default: "16.4"
+    Description: >
+      RDS Postgres version. VERIFY this version supports `CREATE EXTENSION vector`
+      before deploy (pgvector availability varies by minor version — SETUP §0.6).
+  PsycopgLayerArn:
+    Type: String
+    Description: >
+      ARN of a Lambda layer providing psycopg2 (or pg8000) for the role-bootstrap
+      custom resource. Kept as a param so this template carries no vendored code.
+
+Resources:
+  # ─── Admin/ingestion DB credentials — the ONLY secret the service may read ──
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: sentinelrag/db
+      Description: SentinelRAG Postgres admin/ingestion credentials.
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"sentinel_admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SentinelRAG DB subnet group
+      SubnetIds: !Ref PrivateSubnetIds
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SentinelRAG Postgres — no ingress rules here; add from the service SG only.
+      VpcId: !Ref VpcId
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: sentinelrag
+      Engine: postgres
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: "20"
+      DBName: sentinel
+      MasterUsername: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:password}}"
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [!Ref DBSecurityGroup]
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      # Lets the API authenticate as sentinel_api via IAM instead of a password.
+      EnableIAMDatabaseAuthentication: true
+
+  # ─── The service's IAM role — scoped to EXACTLY two privileges ──────────────
+  # Assumed by the ECS task (compute lives in another stack). It can do nothing
+  # in AWS except read its one DB secret and open an IAM-authenticated DB
+  # connection as the read-only sentinel_api role. No rds:*, no ec2:*, no
+  # broad secretsmanager:*.
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: sentinelrag-service
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: db-access-least-privilege
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # (1) Read ONLY this one secret — not secretsmanager:* , not other secrets.
+              - Sid: ReadDbSecretOnly
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DBSecret
+              # (2) Open an IAM-auth DB connection ONLY as sentinel_api (the
+              #     SELECT-only role). The dbuser ARN pins both the instance
+              #     (DbiResourceId) and the exact DB username — no master, no
+              #     sentinel_ingest, no rds:* management actions.
+              - Sid: RdsIamConnectAsApiRoleOnly
+                Effect: Allow
+                Action: rds-db:connect
+                Resource: !Sub "arn:${AWS::Partition}:rds-db:${AWS::Region}:${AWS::AccountId}:dbuser:${DBInstance.DbiResourceId}/sentinel_api"
+
+  # ─── Bootstrap the least-privilege in-DB roles (mirrors sql/003_roles.sql) ──
+  # CloudFormation can't CREATE ROLE / GRANT directly, so a custom resource runs
+  # the SQL once, using the admin creds from DBSecret.
+  DbRolesFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: read-db-secret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Bootstrap Lambda also reads ONLY this one secret.
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DBSecret
+
+  DbRolesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt DbRolesFunctionRole.Arn
+      Layers: [!Ref PsycopgLayerArn]
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds: [!Ref DBSecurityGroup]
+      Environment:
+        Variables:
+          SECRET_ID: !Ref DBSecret
+          DB_HOST: !GetAtt DBInstance.Endpoint.Address
+          DB_PORT: !GetAtt DBInstance.Endpoint.Port
+      Code:
+        # Applies the exact grants from sql/003_roles.sql. Kept inline so the
+        # least-privilege roles are auditable in this template too.
+        ZipFile: |
+          import json, os, urllib.request, boto3, psycopg2
+
+          GRANTS = [
+              # Read-only service role (IAM-authenticated on RDS).
+              "CREATE ROLE sentinel_api NOLOGIN",
+              "GRANT CONNECT ON DATABASE sentinel TO sentinel_api",
+              "GRANT USAGE ON SCHEMA public TO sentinel_api",
+              "GRANT SELECT ON documents, chunks TO sentinel_api",
+              "GRANT rds_iam TO sentinel_api",
+              # Ingestion role: read + the writes the upsert/re-ingest require.
+              "CREATE ROLE sentinel_ingest NOLOGIN",
+              "GRANT CONNECT ON DATABASE sentinel TO sentinel_ingest",
+              "GRANT USAGE ON SCHEMA public TO sentinel_ingest",
+              "GRANT SELECT, INSERT, UPDATE ON documents TO sentinel_ingest",
+              "GRANT SELECT, INSERT, DELETE ON chunks TO sentinel_ingest",
+              "GRANT USAGE, SELECT ON SEQUENCE documents_id_seq, chunks_id_seq TO sentinel_ingest",
+          ]
+
+          def send(event, status, reason=""):
+              body = json.dumps({"Status": status, "Reason": reason[:400] or "see logs",
+                                 "PhysicalResourceId": "sentinel-db-roles",
+                                 "StackId": event["StackId"], "RequestId": event["RequestId"],
+                                 "LogicalResourceId": event["LogicalResourceId"], "Data": {}}).encode()
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT",
+                                           headers={"content-type": ""})
+              urllib.request.urlopen(req)
+
+          def handler(event, context):
+              try:
+                  if event["RequestType"] == "Delete":
+                      return send(event, "SUCCESS")  # leave roles in place on stack delete
+                  sec = json.loads(boto3.client("secretsmanager")
+                                   .get_secret_value(SecretId=os.environ["SECRET_ID"])["SecretString"])
+                  conn = psycopg2.connect(host=os.environ["DB_HOST"], port=os.environ["DB_PORT"],
+                                          dbname="sentinel", user=sec["username"], password=sec["password"])
+                  conn.autocommit = True
+                  with conn.cursor() as cur:
+                      for stmt in GRANTS:
+                          try:
+                              cur.execute(stmt)
+                          except psycopg2.errors.DuplicateObject:
+                              pass  # idempotent: role already exists on stack update
+                  send(event, "SUCCESS")
+              except Exception as e:  # noqa: BLE001
+                  send(event, "FAILED", str(e))
+
+  DbRoles:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt DbRolesFunction.Arn
+
+Outputs:
+  DbEndpoint:
+    Value: !GetAtt DBInstance.Endpoint.Address
+  ServiceRoleArn:
+    Description: Attach this as the ECS task role for the SentinelRAG service.
+    Value: !GetAtt ServiceRole.Arn
+  DbSecretArn:
+    Value: !Ref DBSecret

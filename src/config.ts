@@ -36,6 +36,12 @@ const EnvSchema = z.object({
 
   // Optional reranker (stretch)
   COHERE_API_KEY: z.string().optional(),
+
+  // HTTP hardening (§9) — rate limiting + CORS, values from .env.
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60), // per-IP, per window
+  RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(600), // all clients combined
+  RATE_LIMIT_WINDOW: z.string().default("1 minute"), // "1 minute" | ms
+  CORS_ORIGINS: z.string().default(""), // comma-separated; empty => cross-origin disabled
 });
 
 const parsed = EnvSchema.safeParse(process.env);
@@ -47,6 +53,12 @@ if (!parsed.success) {
 }
 
 export const config = parsed.data;
+
+/** Allowed CORS origins from CORS_ORIGINS (comma-separated). Empty => disabled. */
+export const corsOrigins: string[] = config.CORS_ORIGINS
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 /** Embedding dimension for the active model. Single exported constant. */
 export const EMBED_DIM: number = (() => {
