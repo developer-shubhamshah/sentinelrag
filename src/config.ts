@@ -42,6 +42,9 @@ const EnvSchema = z.object({
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(600), // all clients combined
   RATE_LIMIT_WINDOW: z.string().default("1 minute"), // "1 minute" | ms
   CORS_ORIGINS: z.string().default(""), // comma-separated; empty => cross-origin disabled
+
+  // Guards (§8) — below this groundedness score, RAG returns "insufficient evidence".
+  GROUNDEDNESS_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

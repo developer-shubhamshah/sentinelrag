@@ -36,11 +36,11 @@ query ──► route() ──┬─ deterministic   exact CVE/ATT&CK id → DB 
 
 | JD area | In this repo |
 |---|---|
-| **LLM fundamentals** — embeddings, token/context budgeting, hallucinations | embeddings drive retrieval (`src/llm/embed.ts`, `src/retrieval/vector.ts`); per-request **token/cost budgeting** (`src/obs/trace.ts`); hallucination control via the groundedness guard (`src/guards/groundedness.ts`, *roadmap*) |
+| **LLM fundamentals** — embeddings, token/context budgeting, hallucinations | embeddings drive retrieval (`src/llm/embed.ts`, `src/retrieval/vector.ts`); per-request **token/cost budgeting** (`src/obs/trace.ts`); hallucination control via the groundedness guard (`src/guards/groundedness.ts`) |
 | **Pattern breadth** — structured output, tool/function calling, RAG, agentic | Zod structured output (`src/schema.ts`); tool-use loop (`src/strategies/agentic.ts`); RAG (`src/strategies/rag.ts`); all four strategies behind one `Answer` shape |
 | **When to use what** — informed routing | `src/router/route.ts` (rules-first classifier) + a per-request decision log (`{query, chosen, reason, latency, tokens, costUSD}`) |
 | **Evaluation** — metrics, golden set, regression | `eval/metrics.ts` (hit-rate@k, MRR, nDCG), `eval/judge.ts` (LLM-as-judge), `eval/run.ts` (comparison table), `data/golden.jsonl` (30 hand-curated items); CI regression (`test/regression.test.ts`, *roadmap*) |
-| **Production trade-offs** — latency/cost/accuracy, tracing, injection defense | the comparison table below; `src/obs/trace.ts`; prompt-injection handling (`src/strategies/rag.ts` data-only context; `src/guards/injection.ts`, *roadmap*) |
+| **Production trade-offs** — latency/cost/accuracy, tracing, injection defense | the comparison table below; `src/obs/trace.ts`; prompt-injection screen that excludes instruction-like chunks (`src/guards/injection.ts`) + data-only context (`src/strategies/rag.ts`) |
 | **Security** — threat model → OWASP | [`SECURITY.md`](./SECURITY.md) maps every control to **OWASP Top 10:2025**; SSRF guard (`src/guards/ssrf.ts`), request validation, parameterized SQL, rate-limit/helmet/CORS, dependency-scan CI |
 | **DevOps (bonus)** — IaC | `infra/cloudformation.yaml` (RDS pgvector + Secrets Manager + least-privilege IAM/DB roles), `sql/003_roles.sql`, `.github/workflows/ci.yml` |
 | **AI-assisted dev** | ["Built with Claude Code"](#built-with-claude-code) below |
@@ -157,9 +157,6 @@ This project was built with Claude Code. Honest notes on where AI output was
 
 ## Roadmap (deliberate scoping, not unfinished work)
 
-- **§8 guards** — groundedness judge (sets the real `groundedness` score and
-  returns "insufficient evidence" below threshold) and prompt-injection screen on
-  retrieved chunks. *Next up — load-bearing, not cleanup.*
 - **Regression gate** — `test/regression.test.ts` asserting aggregate eval scores
   stay above a floor, wired into CI.
 - **Retrieval** — `websearch_to_tsquery` for a fair keyword baseline; optional

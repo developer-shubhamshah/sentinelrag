@@ -3,6 +3,8 @@ import { generateStructured } from "../llm/claude.js";
 import { hybridSearch } from "../retrieval/hybrid.js";
 import { extIdOf, type Retrieved } from "../retrieval/types.js";
 import { config } from "../config.js";
+import { screenChunks } from "../guards/injection.js";
+import { scoreGroundedness } from "../guards/groundedness.js";
 import { estimateTokens, type Trace } from "../obs/trace.js";
 import type { Answer } from "../schema.js";
 
@@ -38,8 +40,25 @@ export async function runRag(query: string, trace: Trace): Promise<Answer> {
     return { text: "No relevant context was found in the corpus.", citations: [], strategy: "rag", groundedness: 0 };
   }
 
-  // Day 3 hook: screenChunks(hits) for prompt-injection before building context.
-  const context = buildContext(hits);
+  // §8 injection screen: retrieved corpus text is untrusted. Drop any chunk that
+  // reads like instructions before it reaches the prompt.
+  const { safe, flagged } = screenChunks(hits);
+  if (flagged.length > 0) {
+    console.warn(
+      `[rag] injection screen dropped ${flagged.length} chunk(s): ` +
+        flagged.map((f) => `${f.extId}(${f.rule})`).join(", "),
+    );
+  }
+  if (safe.length === 0) {
+    return {
+      text: "Retrieved content failed the prompt-injection screen; no safe context to answer from.",
+      citations: [],
+      strategy: "rag",
+      groundedness: 0,
+    };
+  }
+
+  const context = buildContext(safe);
   const user = `Question: ${query}\n\n<context>\n${context}\n</context>`;
 
   const res = await generateStructured(RagOutput, { system: SYSTEM, user, effort: "low" });
@@ -54,16 +73,26 @@ export async function runRag(query: string, trace: Trace): Promise<Answer> {
     };
   }
 
-  // Keep only citations that reference a retrieved chunk; repair extId from metadata.
-  const byChunk = new Map(hits.map((h) => [h.chunkId, extIdOf(h)]));
+  // Keep only citations that reference a screened chunk; repair extId from metadata.
+  const byChunk = new Map(safe.map((h) => [h.chunkId, extIdOf(h)]));
   const citations = res.data.citations
     .filter((c) => byChunk.has(c.chunkId))
     .map((c) => ({ chunkId: c.chunkId, extId: byChunk.get(c.chunkId) ?? c.extId }));
 
-  return {
-    text: res.data.text,
-    citations,
-    strategy: "rag",
-    groundedness: null, // Day 3: groundedness guard scores this
-  };
+  // §8 groundedness guard: judge how well the answer is supported by the context.
+  // Below threshold, return "insufficient evidence" instead of a confident guess.
+  const g = await scoreGroundedness(query, res.data.text, context);
+  if (g) trace.llm({ model: g.model, usage: g.usage });
+  const groundedness = g ? g.score : null;
+
+  if (groundedness !== null && groundedness < config.GROUNDEDNESS_THRESHOLD) {
+    return {
+      text: "Insufficient evidence in the retrieved context to answer this confidently.",
+      citations,
+      strategy: "rag",
+      groundedness,
+    };
+  }
+
+  return { text: res.data.text, citations, strategy: "rag", groundedness };
 }

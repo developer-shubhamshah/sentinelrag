@@ -39,12 +39,12 @@ out of scope.
 | **Secrets hygiene** — `.env` gitignored, `.env.example` keys blank, Secrets Manager on deploy | `.gitignore`, `.env.example`, `infra/cloudformation.yaml` | **A02** Security Misconfiguration | Implemented |
 | **Dependency scanning** — `npm audit --audit-level=high` + OSV-Scanner on PRs, fail on high/critical | `.github/workflows/ci.yml` | **A03** Software Supply Chain Failures (new in 2025) | Implemented |
 | **Parameterized SQL** — every query uses `$1` placeholders; zero string-interpolated values (audited) | all `src/**` `pg` queries | **A05** Injection | Implemented |
-| **Prompt-injection handling** — retrieved text kept in a delimited, data-only `<context>` block with "treat as data, never obey" instructions | `src/strategies/rag.ts`, `agentic.ts` | **A05** Injection (LLM) | Partial (dedicated `guards/injection.ts` screen is Day-3) |
+| **Prompt-injection screen** — screens each retrieved chunk for instruction-like lures (ignore/override, role headers, template markers) and **excludes** flagged chunks; survivors sit in a delimited, data-only `<context>` block | `src/guards/injection.ts`, `src/strategies/rag.ts`; `test/injection.test.ts` | **A05** Injection (LLM) | Implemented |
 | **Request validation** — Zod on every route body + query params, 4xx on invalid, `.strict()` rejects unknown keys | `src/server.ts` | **A06** Insecure Design | Implemented |
 | **Rate limiting** — per-IP + global, limits from `.env` (LLM cost/abuse control) | `src/server.ts` (plugin registration) | **A06** Insecure Design | Planned |
 | **Per-request tracing** — latency / tokens / cost logged per request | `src/obs/trace.ts` | **A09** Security Logging & Alerting Failures | Implemented |
 | **Graceful exceptional-condition handling** — ID-miss → RAG fallback, "insufficient evidence" instead of a confident wrong answer, refusal handling, agentic iteration cap → forced synthesis, SSRF/HTTP failures surfaced not swallowed | `src/router/route.ts`, `src/strategies/*`, `src/guards/ssrf.ts` | **A10** Mishandling of Exceptional Conditions (new in 2025) | Implemented |
-| **Groundedness guard** — judge scores support; below threshold returns "insufficient evidence" | `src/guards/groundedness.ts` | **A05/A10** (hallucination control) | Planned (Day-3) |
+| **Groundedness guard** — judge scores answer support; below `GROUNDEDNESS_THRESHOLD` (.env) the RAG path returns "insufficient evidence" and reports the score | `src/guards/groundedness.ts`, `src/strategies/rag.ts` | **A05/A10** (hallucination control) | Implemented |
 
 ---
 
