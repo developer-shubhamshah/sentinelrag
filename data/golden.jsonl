@@ -1,0 +1,30 @@
+{"q":"What is CVE-2024-21647?","answer_keywords":["CVE-2024-21647"],"relevant_ext_ids":["CVE-2024-21647"],"expected_strategy":"deterministic"}
+{"q":"Show the details for CVE-2023-6598","answer_keywords":["CVE-2023-6598"],"relevant_ext_ids":["CVE-2023-6598"],"expected_strategy":"deterministic"}
+{"q":"Look up CVE-2023-50863","answer_keywords":["CVE-2023-50863"],"relevant_ext_ids":["CVE-2023-50863"],"expected_strategy":"deterministic"}
+{"q":"Describe technique T1566","answer_keywords":["T1566","Phishing"],"relevant_ext_ids":["T1566"],"expected_strategy":"deterministic"}
+{"q":"What does T1486 refer to?","answer_keywords":["T1486"],"relevant_ext_ids":["T1486"],"expected_strategy":"deterministic"}
+{"q":"Give the record for T1059.005","answer_keywords":["T1059.005","Visual Basic"],"relevant_ext_ids":["T1059.005"],"expected_strategy":"deterministic"}
+{"q":"What is a buffer overflow?","answer_keywords":["buffer","memory"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"What is phishing?","answer_keywords":["phishing","social"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"What is cross-site scripting?","answer_keywords":["script","browser"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"Explain what command injection is","answer_keywords":["command","inject"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"Define multi-factor authentication","answer_keywords":["factor","authentication"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"What is a denial of service attack?","answer_keywords":["denial","availability"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"What is social engineering?","answer_keywords":["social","manipulat"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"What is ransomware?","answer_keywords":["ransom","encrypt"],"relevant_ext_ids":[],"expected_strategy":"direct"}
+{"q":"Which technique covers abuse of Visual Basic for execution?","answer_keywords":["T1059.005","Visual Basic"],"relevant_ext_ids":["T1059.005"],"expected_strategy":"rag"}
+{"q":"What technique describes adversaries sending phishing messages to gain access?","answer_keywords":["T1566","Phishing"],"relevant_ext_ids":["T1566"],"expected_strategy":"rag"}
+{"q":"Which technique involves encrypting data to interrupt availability?","answer_keywords":["T1486","Data Encrypted"],"relevant_ext_ids":["T1486"],"expected_strategy":"rag"}
+{"q":"What technique covers interacting with the native OS API to execute behaviors?","answer_keywords":["T1106","Native API"],"relevant_ext_ids":["T1106"],"expected_strategy":"rag"}
+{"q":"Which technique describes modifying authentication mechanisms to access credentials?","answer_keywords":["T1556","Authentication"],"relevant_ext_ids":["T1556"],"expected_strategy":"rag"}
+{"q":"Which technique covers active reconnaissance scanning of victim infrastructure?","answer_keywords":["T1595","Active Scanning"],"relevant_ext_ids":["T1595"],"expected_strategy":"rag"}
+{"q":"What technique describes abusing valid accounts for access?","answer_keywords":["T1078","Valid Accounts"],"relevant_ext_ids":["T1078"],"expected_strategy":"rag"}
+{"q":"Which technique covers brute forcing accounts when passwords are unknown?","answer_keywords":["T1110","Brute Force"],"relevant_ext_ids":["T1110"],"expected_strategy":"rag"}
+{"q":"What technique covers scheduled task execution of malicious code?","answer_keywords":["T1053","Scheduled Task"],"relevant_ext_ids":["T1053"],"expected_strategy":"rag"}
+{"q":"Which technique describes inhibiting system recovery by deleting backups?","answer_keywords":["T1490","Inhibit System Recovery"],"relevant_ext_ids":["T1490"],"expected_strategy":"rag"}
+{"q":"What technique covers spearphishing emails with malicious attachments?","answer_keywords":["T1566.001","Spearphishing"],"relevant_ext_ids":["T1566.001"],"expected_strategy":"rag"}
+{"q":"How does T1059 relate to command execution, and which sub-techniques fall under it?","answer_keywords":["T1059"],"relevant_ext_ids":["T1059","T1059.005"],"expected_strategy":"agentic"}
+{"q":"How does phishing lead to valid account abuse, and what techniques are involved?","answer_keywords":["T1566","T1078"],"relevant_ext_ids":["T1566","T1078"],"expected_strategy":"agentic"}
+{"q":"Which techniques relate to credential access and how are they mitigated?","answer_keywords":["credential"],"relevant_ext_ids":["T1556","T1110"],"expected_strategy":"agentic"}
+{"q":"How does scheduled task execution chain into persistence, and which technique covers it?","answer_keywords":["T1053","Scheduled Task"],"relevant_ext_ids":["T1053"],"expected_strategy":"agentic"}
+{"q":"What is the relationship between brute force and valid accounts, and which techniques apply?","answer_keywords":["T1110","T1078"],"relevant_ext_ids":["T1110","T1078"],"expected_strategy":"agentic"}
