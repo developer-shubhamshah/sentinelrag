@@ -4,7 +4,7 @@ import { hybridSearch } from "../retrieval/hybrid.js";
 import { extIdOf, type Retrieved } from "../retrieval/types.js";
 import { config } from "../config.js";
 import { screenChunks } from "../guards/injection.js";
-import { scoreGroundedness } from "../guards/groundedness.js";
+import { scoreGroundedness, guardAnswer } from "../guards/groundedness.js";
 import { estimateTokens, type Trace } from "../obs/trace.js";
 import type { Answer } from "../schema.js";
 
@@ -79,20 +79,16 @@ export async function runRag(query: string, trace: Trace): Promise<Answer> {
     .filter((c) => byChunk.has(c.chunkId))
     .map((c) => ({ chunkId: c.chunkId, extId: byChunk.get(c.chunkId) ?? c.extId }));
 
-  // §8 groundedness guard: judge how well the answer is supported by the context.
-  // Below threshold, return "insufficient evidence" instead of a confident guess.
+  // §8 groundedness guard: a SEPARATE judge pass scores how well the answer is
+  // supported by the context. Below GROUNDEDNESS_THRESHOLD, guardAnswer overrides
+  // the generator's answer with "insufficient evidence".
   const g = await scoreGroundedness(query, res.data.text, context);
   if (g) trace.llm({ model: g.model, usage: g.usage });
   const groundedness = g ? g.score : null;
 
-  if (groundedness !== null && groundedness < config.GROUNDEDNESS_THRESHOLD) {
-    return {
-      text: "Insufficient evidence in the retrieved context to answer this confidently.",
-      citations,
-      strategy: "rag",
-      groundedness,
-    };
-  }
-
-  return { text: res.data.text, citations, strategy: "rag", groundedness };
+  return guardAnswer(
+    { text: res.data.text, citations, strategy: "rag", groundedness },
+    groundedness,
+    config.GROUNDEDNESS_THRESHOLD,
+  );
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateStructured, type Usage } from "../llm/claude.js";
 import { config } from "../config.js";
+import type { Answer } from "../schema.js";
 
 /**
  * Groundedness guard (the "hallucinations" control). A cheap JUDGE_MODEL call
@@ -40,4 +41,20 @@ export async function scoreGroundedness(
   });
   if (!res.data) return null;
   return { score: res.data.groundedness, model: res.model, usage: res.usage };
+}
+
+/** The response used when the guard overrides a low-groundedness answer. */
+export const INSUFFICIENT_EVIDENCE =
+  "Insufficient evidence in the retrieved context to answer this confidently.";
+
+/**
+ * Apply the groundedness threshold (pure, LLM-free so it is unit-testable).
+ * Stamps the answer with the judged `score`; if that score is below `threshold`,
+ * OVERRIDES the answer text with an insufficient-evidence response regardless of
+ * what the generator produced (citations retained). A null score (judge
+ * unavailable) leaves the text unchanged with groundedness null.
+ */
+export function guardAnswer(answer: Answer, score: number | null, threshold: number): Answer {
+  const text = score !== null && score < threshold ? INSUFFICIENT_EVIDENCE : answer.text;
+  return { ...answer, text, groundedness: score };
 }
