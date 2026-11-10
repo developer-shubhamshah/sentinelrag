@@ -84,5 +84,25 @@ README's "Built with Claude Code" section) so a fresh session has continuity:
   "cross-site scripting" returns 5 rows, exact T1059 lookup works, vectors read back as number[].
 - Fixed en route: NVD 120-day window (→110d); host-Postgres 5432 clash (→5433); pgvector
   type-registration race (per-conn hook → race-free global parser keyed on the vector OID + `dbReady`).
-- **Day 1 DONE.** Next: Day 2 — retrievers (vector/keyword/RRF hybrid), 4 strategies, router+logging.
-  Needs `ANTHROPIC_API_KEY` in `.env` for the LLM strategies/judge.
+- **Day 1 DONE.**
+
+**Day 2 — retrievers + 4 strategies + router (DONE)**
+- Verified live before coding (not memory): TS SDK is `messages.create` (text) / `messages.parse`
+  + `zodOutputFormat` from `@anthropic-ai/sdk/helpers/zod` (structured) / manual tool loop; usage
+  fields `input_tokens`/`output_tokens`/`cache_read_input_tokens`; `zodOutputFormat` works with zod v4.
+- Chosen: `GEN_MODEL=claude-sonnet-5-5` (judge/router stay haiku-5-5). Forced tool_choice 400s on
+  sonnet-5-5 → agentic uses `auto` + strict schemas.
+- Retrieval (uniform `{chunkId,content,score,metadata}[]`): `vector` (cosine sim), `keyword` (FTS),
+  `hybrid` (RRF k=60), `rerank` (flag-gated passthrough; real reranker is stretch).
+- `schema.ts` (Zod `Answer`), `llm/claude.ts` (generate / generateStructured, usage+refusal),
+  `obs/trace.ts` (latency/tokens/cost, price table).
+- Strategies: `deterministic` (regex ID→DB, no LLM), `directLlm` (null groundedness), `rag`
+  (hybrid→data-only prompt→structured cited answer, citations validated vs retrieval), `agentic`
+  (bounded ≤4-iter tool loop: searchCorpus+lookupById). Day-3 hooks left for groundedness+injection.
+- `router/route.ts` (rules: ID&!multihop→deterministic, multihop→agentic, conceptual→direct, else
+  rag; logs reason; ID-miss falls back to rag) + `server.ts` (Fastify POST /ask → Zod-valid Answer
+  + trace; entrypoint-guarded so it's importable in tests).
+- E2E verified: all 4 strategies route correctly & return valid Answers; deterministic = 0 LLM calls/$0;
+  rag cited 4 real CVEs; agentic cited T1059 cluster. POST /ask: health 200, bad body 400, det query 200.
+- **Day 2 DONE.** Next: Day 3 — eval harness (golden set, metrics, judge, comparison table),
+  groundedness + injection guards on the RAG path, regression test + CI, README.
