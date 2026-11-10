@@ -21,3 +21,21 @@
 {"q":"How does path interception via the PATH variable chain into persistent code execution, and which technique covers it?","answer_keywords":["T1574.007","Path Interception"],"relevant_ext_ids":["T1574.007"],"expected_strategy":"agentic"}
 {"q":"Which technique covers exfiltrating encryption keys through neutrino-beam modulation?","answer_keywords":[],"relevant_ext_ids":[],"expected_strategy":"rag"}
 {"q":"What technique describes defending a datacenter against medieval siege weapons?","answer_keywords":[],"relevant_ext_ids":[],"expected_strategy":"rag"}
+{"q":"What is CVE-2024-20686?","answer_keywords":["CVE-2024-20686","Win32k"],"relevant_ext_ids":["CVE-2024-20686"],"expected_strategy":"deterministic"}
+{"q":"Show the details of CVE-2024-22050","answer_keywords":["CVE-2024-22050","traversal"],"relevant_ext_ids":["CVE-2024-22050"],"expected_strategy":"deterministic"}
+{"q":"Describe technique T1078","answer_keywords":["T1078","Valid Accounts"],"relevant_ext_ids":["T1078"],"expected_strategy":"deterministic"}
+{"q":"Which technique describes flooding network services to cause a denial of service?","answer_keywords":["T1499.002","Service Exhaustion"],"relevant_ext_ids":["T1499.002"],"expected_strategy":"rag"}
+{"q":"Which technique covers hijacking Component Object Model references for persistence?","answer_keywords":["T1546.015","Component Object Model"],"relevant_ext_ids":["T1546.015"],"expected_strategy":"rag"}
+{"q":"What technique covers abusing browser extensions to establish persistent access?","answer_keywords":["T1176.001","Browser Extensions"],"relevant_ext_ids":["T1176.001"],"expected_strategy":"rag"}
+{"q":"Which technique covers abusing mmc.exe to proxy execution of malicious .msc files?","answer_keywords":["T1218.014","MMC"],"relevant_ext_ids":["T1218.014"],"expected_strategy":"rag"}
+{"q":"What technique covers discovering resources within an IaaS cloud environment?","answer_keywords":["T1580","Cloud Infrastructure Discovery"],"relevant_ext_ids":["T1580"],"expected_strategy":"rag"}
+{"q":"Which technique covers making and impersonating tokens to bypass access controls?","answer_keywords":["T1134.003","Impersonate Token"],"relevant_ext_ids":["T1134.003"],"expected_strategy":"rag"}
+{"q":"What technique covers abusing serverless computing services to execute code in the cloud?","answer_keywords":["T1648","Serverless"],"relevant_ext_ids":["T1648"],"expected_strategy":"rag"}
+{"q":"Which technique covers leveraging external-facing remote services like VPNs for initial access?","answer_keywords":["T1133","External Remote Services"],"relevant_ext_ids":["T1133"],"expected_strategy":"rag"}
+{"q":"What technique covers enumerating running virtual machines after accessing a hypervisor?","answer_keywords":["T1673","Virtual Machine Discovery"],"relevant_ext_ids":["T1673"],"expected_strategy":"rag"}
+{"q":"Which technique covers disabling or modifying conditional access policies for persistent access?","answer_keywords":["T1556.009","Conditional Access"],"relevant_ext_ids":["T1556.009"],"expected_strategy":"rag"}
+{"q":"What technique covers exfiltrating data over a different network medium than the C2 channel?","answer_keywords":["T1011","Other Network Medium"],"relevant_ext_ids":["T1011"],"expected_strategy":"rag"}
+{"q":"Which technique covers getting information about running processes on a system?","answer_keywords":["T1057","Process Discovery"],"relevant_ext_ids":["T1057"],"expected_strategy":"rag"}
+{"q":"How does forging SAML tokens relate to abusing valid accounts, and which techniques are involved?","answer_keywords":["T1606.002","T1078"],"relevant_ext_ids":["T1606.002","T1078"],"expected_strategy":"agentic"}
+{"q":"How do external remote services chain into remote session hijacking, and which techniques cover it?","answer_keywords":["T1133","T1563"],"relevant_ext_ids":["T1133","T1563"],"expected_strategy":"agentic"}
+{"q":"What is a man-in-the-middle attack?","answer_keywords":["intercept","traffic"],"relevant_ext_ids":[],"expected_strategy":"direct"}
