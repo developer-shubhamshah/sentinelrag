@@ -20,7 +20,7 @@ the setup file. Read it before implementing anything:
 - **Claude = generation + judge only. No Anthropic embeddings API.** Embeddings
   come from Voyage (`voyage-3`) or OpenAI (`text-embedding-3-*`). Keep the
   `embed()` signature provider-agnostic.
-- **Work one phase at a time.** Follow the 3-day cut in the setup file (§11).
+- **Work one phase at a time.** Follow the 3-day cut in the setup file (§12).
   Don't scaffold the whole system in one pass.
 - **Plan before code.** Produce a short step plan for the current phase and wait
   for my review before editing files.
@@ -57,7 +57,7 @@ npm test                      # vitest incl. regression gate
 
 ## Definition of done (per phase)
 
-Use the checklist in the setup file (§12) as the acceptance gate before moving
+Use the checklist in the setup file (§13) as the acceptance gate before moving
 to the next phase or committing.
 
 ## Build log
@@ -65,44 +65,9 @@ to the next phase or committing.
 Keep a short running note of what's done / decided / rejected here (or in the
 README's "Built with Claude Code" section) so a fresh session has continuity:
 
-**Day 1 — DB + ingest + embeddings (in progress)**
-- Verified live (not from memory): OpenAI `text-embedding-3-small` = **1536 dims**
-  → `vector(1536)`; NVD CVE API 2.0 base `https://services.nvd.nist.gov/rest/json/cves/2.0`
-  (120-day window cap — we use 110 days of CVE_YEAR); ATT&CK enterprise STIX raw URL;
-  Claude IDs `claude-opus-5-5` (gen) / `claude-haiku-5-5` (judge+router), all in `.env`.
-- Chosen: embeddings = **OpenAI** (provider-agnostic `embed()` kept); git initialized.
-- Stack installed: `@anthropic-ai/sdk ^1.7`, `openai ^7.55`, `pg ^8.23`, `pgvector ^0.3.1`,
-  `zod ^4.6`, `fastify ^5.12`; `pgvector/pg` API is `registerTypes` (not deprecated `registerType`).
-- Done: scaffold (`package.json` ESM, strict `tsconfig`, `.env(.example)`, `docker-compose`);
-  `sql/001+002` applied (pgvector 0.8.7, HNSW cosine + GIN + ext_id indexes); `src/config.ts`
-  (Zod env, `EMBED_DIM` derived from model), `src/db.ts` (pool + per-conn vector registration),
-  `src/migrate.ts`, `src/llm/embed.ts`, `src/ingest/{chunk,loadCve,loadAttack,run}.ts`.
-- **Infra note:** host Postgres 18 owns `5432`, so the container publishes on **5433**
-  (`DATABASE_URL` updated). Docker Desktop must be running.
-- **Ingested:** 1,906 docs (1,200 CVE + 706 ATT&CK) → 1,973 chunks, all embedded (0 null,
-  dims=1536). DoD smoke passed: vector search returns the T1059 cluster (cos 0.36), FTS
-  "cross-site scripting" returns 5 rows, exact T1059 lookup works, vectors read back as number[].
-- Fixed en route: NVD 120-day window (→110d); host-Postgres 5432 clash (→5433); pgvector
-  type-registration race (per-conn hook → race-free global parser keyed on the vector OID + `dbReady`).
-- **Day 1 DONE.**
-
-**Day 2 — retrievers + 4 strategies + router (DONE)**
-- Verified live before coding (not memory): TS SDK is `messages.create` (text) / `messages.parse`
-  + `zodOutputFormat` from `@anthropic-ai/sdk/helpers/zod` (structured) / manual tool loop; usage
-  fields `input_tokens`/`output_tokens`/`cache_read_input_tokens`; `zodOutputFormat` works with zod v4.
-- Chosen: `GEN_MODEL=claude-sonnet-5-5` (judge/router stay haiku-5-5). Forced tool_choice 400s on
-  sonnet-5-5 → agentic uses `auto` + strict schemas.
-- Retrieval (uniform `{chunkId,content,score,metadata}[]`): `vector` (cosine sim), `keyword` (FTS),
-  `hybrid` (RRF k=60), `rerank` (flag-gated passthrough; real reranker is stretch).
-- `schema.ts` (Zod `Answer`), `llm/claude.ts` (generate / generateStructured, usage+refusal),
-  `obs/trace.ts` (latency/tokens/cost, price table).
-- Strategies: `deterministic` (regex ID→DB, no LLM), `directLlm` (null groundedness), `rag`
-  (hybrid→data-only prompt→structured cited answer, citations validated vs retrieval), `agentic`
-  (bounded ≤4-iter tool loop: searchCorpus+lookupById). Day-3 hooks left for groundedness+injection.
-- `router/route.ts` (rules: ID&!multihop→deterministic, multihop→agentic, conceptual→direct, else
-  rag; logs reason; ID-miss falls back to rag) + `server.ts` (Fastify POST /ask → Zod-valid Answer
-  + trace; entrypoint-guarded so it's importable in tests).
-- E2E verified: all 4 strategies route correctly & return valid Answers; deterministic = 0 LLM calls/$0;
-  rag cited 4 real CVEs; agentic cited T1059 cluster. POST /ask: health 200, bad body 400, det query 200.
-- **Day 2 DONE.** Next: Day 3 — eval harness (golden set, metrics, judge, comparison table),
-  groundedness + injection guards on the RAG path, regression test + CI, README.
+- **Day 1 ✓** — Postgres + pgvector, CVE + ATT&CK ingest (1,973 chunks, all embedded), provider-agnostic `embed()` (OpenAI `text-embedding-3-small`, 1536-dim).
+- **Day 2 ✓** — 4 retrievers (vector/keyword/hybrid-RRF/rerank stub), 4 strategies, rules-first router with a per-request decision + cost/latency trace.
+- **Day 3 ✓** — eval harness + comparison table (`eval/`, 30-item `data/golden.jsonl`; router 100%); §8 guards (injection screen + groundedness, wired into RAG); §9 hardening (SSRF guard + tests, Zod request validation, helmet/rate-limit/CORS, parameterized-SQL audit, CI with `npm audit` + OSV-Scanner, `SECURITY.md` → OWASP 2025, least-priv DB roles + scoped IAM in `infra/cloudformation.yaml`); README (JD-bullet map + real table); regression gate in CI.
+- **Decisions / corrections** — reject *all* redirects in `safeFetch` (undici `redirect:'manual'` gives an unreadable opaque response); OWASP **2025** mapping (SSRF → A01); **two** DB roles (`sentinel_api` read-only + `sentinel_ingest` write) since ingest needs UPDATE/DELETE; eval caught a judge-context bug (deterministic faithfulness is 1.0 by construction); keyword rewritten to OR-of-lexemes (0.045 → 0.636), after which hybrid ≈ vector on this small set.
+- **Pushed** to `origin/master`. All §13 boxes closed.
+- **Roadmap (stretch)** — Cohere/Voyage reranker measured for lift, larger golden set, apply CloudFormation to real RDS.

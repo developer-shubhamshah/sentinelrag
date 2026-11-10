@@ -65,12 +65,16 @@ this file.
 
 ```
 sentinelrag/
-├─ README.md                 # the portfolio-facing writeup (see §10)
+├─ README.md                 # the portfolio-facing writeup (see §11)
+├─ SECURITY.md               # threat model → OWASP Top 10 + out-of-scope (see §9)
 ├─ SentinelRAG-SETUP.md      # this file
 ├─ .env.example
 ├─ docker-compose.yml        # postgres + pgvector
 ├─ package.json
 ├─ tsconfig.json
+├─ .github/
+│  └─ workflows/
+│     └─ ci.yml              # vitest + npm audit + osv-scanner (fail high/crit)
 ├─ sql/
 │  ├─ 001_schema.sql         # tables, vector + tsvector columns, indexes
 │  └─ 002_indexes.sql
@@ -101,7 +105,8 @@ sentinelrag/
 │  │  └─ route.ts            # classify query → choose strategy (+ log why)
 │  ├─ guards/
 │  │  ├─ groundedness.ts     # is the answer supported by context?
-│  │  └─ injection.ts        # prompt-injection screen on retrieved text
+│  │  ├─ injection.ts        # prompt-injection screen on retrieved text
+│  │  └─ ssrf.ts             # outbound-fetch allowlist (ingestion + agentic)
 │  ├─ obs/
 │  │  └─ trace.ts            # per-request latency / tokens / cost
 │  ├─ schema.ts              # Zod schemas for structured output
@@ -307,7 +312,63 @@ log *is* your "informed engineering decisions about when to use what" evidence.
 
 ---
 
-## 9. Evaluation harness (Day 3, morning) — the single most important deliverable
+## 9. Security hardening (Day 3 / parallel) — API-relevant concepts only
+
+**Scope discipline first.** SentinelRAG is a JSON API over *public* data, with no
+browser UI and no user accounts. So only the security concepts that actually
+touch this design get built; the browser/auth ones are **deliberately out of
+scope** and are documented as such (not silently ignored). Record both the
+in-scope controls and the out-of-scope rationale in a `SECURITY.md`.
+
+**Out of scope by design** (revisit only if you add a frontend or API auth):
+XSS, CSRF, CORS (no frontend yet), secure sessions, JWT, OAuth, password hashing,
+at-rest encryption of sensitive data. State *why* in `SECURITY.md` — "no browser
+surface / no accounts / public corpus" — so it reads as a decision, not a gap.
+
+**In scope — build these:**
+
+- **SSRF guard** (`src/guards/ssrf.ts`): used by the ingestion fetcher **and every
+  agentic tool that fetches**. Scheme + host allowlist; block private, loopback,
+  and link-local ranges plus the cloud metadata IP (`169.254.169.254`); reject
+  redirects to disallowed hosts. Unit-test the blocked ranges. (list #6)
+- **Rate limiting** (`@fastify/rate-limit`): per-IP and global, limits from
+  `.env`. This is cost/abuse control for the LLM calls, not just DDoS. (list #16)
+- **Request-body validation**: Zod schemas at every route boundary, rejecting
+  invalid input with a 4xx. Complements the Zod you already use on output. (#17)
+- **Parameterized SQL**: audit all `pg` access in `src/` — every query uses `$1`
+  placeholders; zero string-interpolated SQL. (list #2)
+- **Security headers** (`@fastify/helmet`); `@fastify/cors` locked to origins from
+  `.env` if/when a frontend exists (else documented N/A). (list #15)
+- **Secrets hygiene**: `.env` gitignored, `.env.example` committed with empty
+  keys; AWS Secrets Manager on deploy. (list #13)
+- **Dependency scanning**: `npm audit` + `osv-scanner` in a GitHub Actions
+  workflow on PRs, failing on high/critical. Cheap, strong signal. (list #18)
+- **IAM least-privilege** (deploy / stretch): a dedicated Postgres role with only
+  the needed SELECT/INSERT, and the service's IAM role scoped to just its secret
+  + RDS connect. (list #14)
+- **`SECURITY.md` threat model**: map each control above to the **OWASP Top 10**
+  (list #1) and list the out-of-scope items with rationale.
+
+> **Accuracy note:** the Fastify plugins, `npm audit`, `osv-scanner`, and
+> parameterized `pg` queries are all real and stable — but confirm current plugin
+> option names and the `osv-scanner` action usage against their own docs/READMEs
+> before wiring config; don't trust remembered option keys.
+
+**Definition of done (this phase):**
+
+- [ ] SSRF guard blocks private/loopback/link-local/metadata; unit-tested; wired into ingestion + agentic fetch tools
+- [ ] Rate limiting active (per-IP + global), limits from `.env`
+- [ ] Every route body/params Zod-validated; invalid input rejected with 4xx
+- [ ] All DB queries parameterized; zero string-interpolated SQL
+- [ ] `@fastify/helmet` headers on; CORS restricted or documented N/A
+- [ ] `.env` gitignored + `.env.example` committed
+- [ ] CI runs `npm audit` + `osv-scanner`, fails on high/critical
+- [ ] `SECURITY.md` maps controls → OWASP Top 10 and lists out-of-scope items with rationale
+- [ ] (deploy) least-privilege DB role + scoped IAM in CloudFormation
+
+---
+
+## 10. Evaluation harness (Day 3, morning) — the single most important deliverable
 
 1. **Golden set** (`data/golden.jsonl`): 30–50 hand-written items:
    ```json
@@ -328,7 +389,7 @@ log *is* your "informed engineering decisions about when to use what" evidence.
 
 ---
 
-## 10. README (Day 3, afternoon) — map every JD bullet explicitly
+## 11. README (Day 3, afternoon) — map every JD bullet explicitly
 
 Write the README so a reviewer sees the mapping without hunting:
 
@@ -341,19 +402,27 @@ Write the README so a reviewer sees the mapping without hunting:
 - **When to use what** — the router, with the decision log as proof.
 - **Evaluation** — the comparison table + golden set + CI regression.
 - **Production trade-offs** — latency/cost/accuracy table, caching, per-request
-  traces, prompt-injection defense.
+  traces, prompt-injection defense; link `SECURITY.md` and the hardening layer
+  (SSRF, rate limiting, dependency scanning, least-privilege).
+- **Security (§9)** — `SECURITY.md` threat model mapped to the OWASP Top 10, with
+  deliberately out-of-scope items justified. Strong signal for a security employer.
 - **DevOps (bonus)** — CloudFormation template for RDS (pgvector) + the service.
 
 ---
 
-## 11. 3-day cut (priority order — ship the core, mark the rest as roadmap)
+## 12. 3-day cut (priority order — ship the core, mark the rest as roadmap)
 
 | Day | Land this | Covers JD bullets |
 |-----|-----------|-------------------|
 | 1 | DB + pgvector, ingest CVE+ATT&CK, embeddings | fundamentals |
 | 2 | 4 retrievers (RRF hybrid), 4 strategies, router+logging | patterns, "when to use what" |
 | 3 | eval harness + table, groundedness+injection guards, README | evaluation, trade-offs |
-| Stretch | agentic multi-hop polish, reranker, CloudFormation→RDS | agentic, DevOps |
+| 3 / parallel | Hardening (§9): SSRF, rate limit, input validation, dep scan, `SECURITY.md` | trade-offs (security) |
+| Stretch | agentic multi-hop polish, reranker, CloudFormation→RDS, least-priv IAM | agentic, DevOps |
+
+Hardening is scoped so the request-level items (SSRF, rate limit, validation,
+headers, dep scan, `SECURITY.md`) fit in the core; IAM least-privilege rides with
+the CloudFormation stretch row.
 
 **Core = Day 1–3 without the stretch row**, and it already satisfies five of the
 six AI/LLM bullets. The README frames the stretch row as "roadmap," which reads
@@ -361,13 +430,15 @@ as deliberate scoping, not unfinished work.
 
 ---
 
-## 12. Definition of done
+## 13. Definition of done (overall)
 
 - [ ] `POST /ask` returns a Zod-valid `Answer` with citations + strategy + groundedness
 - [ ] Deterministic path answers a CVE-ID query with zero LLM calls
 - [ ] `eval/run.ts` prints the comparison table across retrieval configs
 - [ ] Regression test green in CI
 - [ ] Injection screen + groundedness guard active on the RAG path
+- [ ] Hardening phase (§9) definition-of-done met: SSRF guard, rate limiting,
+      request validation, parameterized SQL, dependency scanning, `SECURITY.md`
 - [ ] README maps each JD bullet to a file/feature
 - [ ] `.env.example` present; no secrets committed
 
