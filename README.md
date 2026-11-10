@@ -39,7 +39,7 @@ query ──► route() ──┬─ deterministic   exact CVE/ATT&CK id → DB 
 | **LLM fundamentals** — embeddings, token/context budgeting, hallucinations | embeddings drive retrieval (`src/llm/embed.ts`, `src/retrieval/vector.ts`); per-request **token/cost budgeting** (`src/obs/trace.ts`); hallucination control via the groundedness guard (`src/guards/groundedness.ts`) |
 | **Pattern breadth** — structured output, tool/function calling, RAG, agentic | Zod structured output (`src/schema.ts`); tool-use loop (`src/strategies/agentic.ts`); RAG (`src/strategies/rag.ts`); all four strategies behind one `Answer` shape |
 | **When to use what** — informed routing | `src/router/route.ts` (rules-first classifier) + a per-request decision log (`{query, chosen, reason, latency, tokens, costUSD}`) |
-| **Evaluation** — metrics, golden set, regression | `eval/metrics.ts` (hit-rate@k, MRR, nDCG), `eval/judge.ts` (LLM-as-judge), `eval/run.ts` (comparison table), `data/golden.jsonl` (30 hand-curated items); CI regression (`test/regression.test.ts`, *roadmap*) |
+| **Evaluation** — metrics, golden set, regression | `eval/metrics.ts` (hit-rate@k, MRR, nDCG), `eval/judge.ts` (LLM-as-judge), `eval/run.ts` (comparison table), `data/golden.jsonl` (30 hand-curated items); CI regression gate (`test/regression.test.ts` — router accuracy + metric math, no LLM) |
 | **Production trade-offs** — latency/cost/accuracy, tracing, injection defense | the comparison table below; `src/obs/trace.ts`; prompt-injection screen that excludes instruction-like chunks (`src/guards/injection.ts`) + data-only context (`src/strategies/rag.ts`) |
 | **Security** — threat model → OWASP | [`SECURITY.md`](./SECURITY.md) maps every control to **OWASP Top 10:2025**; SSRF guard (`src/guards/ssrf.ts`), request validation, parameterized SQL, rate-limit/helmet/CORS, dependency-scan CI |
 | **DevOps (bonus)** — IaC | `infra/cloudformation.yaml` (RDS pgvector + Secrets Manager + least-privilege IAM/DB roles), `sql/003_roles.sql`, `.github/workflows/ci.yml` |
@@ -112,7 +112,7 @@ npm run db:migrate            # sql/001_schema.sql, 002_indexes.sql (003_roles.s
 npm run ingest                # download + chunk + embed CVE + ATT&CK (bounded slice)
 npm run dev                   # Fastify API — POST /ask
 npm run eval                  # golden set across strategies → the table above
-npm test                      # vitest (SSRF guard; regression gate on the roadmap)
+npm test                      # vitest: SSRF + injection guards + regression gate (router accuracy floor)
 ```
 
 `POST /ask` returns a Zod-valid `Answer` (`{ text, citations, strategy,
@@ -157,8 +157,6 @@ This project was built with Claude Code. Honest notes on where AI output was
 
 ## Roadmap (deliberate scoping, not unfinished work)
 
-- **Regression gate** — `test/regression.test.ts` asserting aggregate eval scores
-  stay above a floor, wired into CI.
 - **Retrieval** — `websearch_to_tsquery` for a fair keyword baseline; optional
   Cohere/Voyage reranker (`src/retrieval/rerank.ts`) measured for lift.
 - **Deploy** — apply the CloudFormation stack to RDS; confirm the engine version
